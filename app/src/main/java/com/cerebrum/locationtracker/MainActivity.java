@@ -1,6 +1,7 @@
 package com.cerebrum.locationtracker;
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -114,17 +115,17 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
         switch (view.getId()) {
 
             case R.id.btn_location_update:
-//                if (appPreference.getBoolean(PrefKey.IS_LOCATION_UPDATING)) {
-//                    // Location is updating, so start stop updating location;
-//                    btnLocationUpdate.setText("START UPDATING LOCATION");
-//                    appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
-//                    stopLocationUpdates();
-//                }
-//                else {
-//                    // Location not updating, so start updating location;
-                    startLocationUpdates();
-                    btnLocationUpdate.setText("STARTING LOCATION UPDATES ...");
-              //  }
+                if (appPreference.getBoolean(PrefKey.IS_LOCATION_UPDATING)) {
+                    // Location is updating, so start stop updating location;
+                    btnLocationUpdate.setText("STOP UPDATING LOCATION");
+                    appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
+                    stopLocationUpdates();
+                }
+                else {
+                    // Location not updating, so start updating location;
+                    startLocationService();
+                    appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, true);
+                }
 
                 break;
         }
@@ -133,19 +134,41 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
 
 
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+       setLocationUpdateStatus();
+    }
+
+
+
+
+    private void startLocationService() {
+        Intent serviceIntent = new Intent(this, MyLocationService.class);
+        serviceIntent.putExtra("ACTION_TYPE", "START_LOCATION_TRACKING");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+
+        }
+        else {
+            startService(serviceIntent);
+        }
+        bindService(serviceIntent, mServiceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+
+
+
     private void startLocationUpdates() {
         askLocationPermissions(() ->
                 checkLocationSettings(() -> {
-                    Intent serviceIntent = new Intent(this, MyLocationService.class);
-                    serviceIntent.putExtra("ACTION_TYPE", "START_LOCATION_TRACKING");
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(serviceIntent);
-                        bindService(serviceIntent, mServiceConnection, Context.BIND_AUTO_CREATE);
+                    if (mService != null && mServiceConnected) {
+                        mService.startLocationTracking();
                     }
                     else {
-                        startService(serviceIntent);
-                        bindService(serviceIntent, mServiceConnection, Context.BIND_AUTO_CREATE);
+                        startLocationService();
                     }
+                    btnLocationUpdate.setText("STOP LOCATION UPDATE");
                 })
         );
     }
@@ -155,7 +178,16 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
 
     private void stopLocationUpdates() {
         Toast.makeText(this, "Location updates stopped.", Toast.LENGTH_SHORT).show();
-        viewModel.stopLocationUpdates();
+        if (mService != null && mServiceConnected) {
+            Log.d("LocationTest", "Service is running");
+            mService.stopLocationTracking();
+            unbindService(mServiceConnection);
+            mService.stopSelf();
+            mService.stopForeground(true);
+            mServiceConnected = false;
+            btnLocationUpdate.setText("START LOCATION UPDATE");
+            appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
+        }
     }
 
 
@@ -170,6 +202,7 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
             Log.d("LocationTest", "Connected to service.");
             mService = ((MyLocationService.LocalBinder) binder).getService();
             mServiceConnected = true;
+            mService.startLocationTracking();
             receiveUpdates();
         }
 
@@ -181,8 +214,6 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
         public void onServiceDisconnected(ComponentName className) {
 
             Log.d("LocationTest", "Disconnected from service.");
-            mService = null;
-            mServiceConnected = false;
 
         }
 
@@ -191,20 +222,23 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
 
 
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        unbindService(mServiceConnection);
-        mServiceConnected = false;
+    public void receiveUpdates() {
+        mService.getLocationUpdates().observe(this, location -> {
+          //  Log.d("LocationTest", "receiveUpdates:  " + location.getLatitude() + " " + location.getLongitude());
+        });
     }
 
 
 
 
-    public void receiveUpdates() {
-        mService.getLocationUpdates().observe(this, location -> {
-            Log.d("LocationTest", "receiveUpdates:  " + location.getLatitude() + " " + location.getLongitude());
-        });
+    private boolean isMyServiceRunning(Class<?> serviceClass) {
+        ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
+            if (serviceClass.getName().equals(service.service.getClassName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
 

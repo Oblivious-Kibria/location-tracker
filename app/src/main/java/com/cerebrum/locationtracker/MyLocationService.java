@@ -17,6 +17,8 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.MutableLiveData;
 
+import com.cerebrum.locationtracker.preference.AppPreference;
+import com.cerebrum.locationtracker.preference.PrefKey;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
@@ -32,13 +34,13 @@ public class MyLocationService extends Service {
 
 
     private PowerManager.WakeLock powerManagerWakeLock;
-    private boolean isServiceStarted = false;
 
 
-    private FusedLocationProviderClient fusedLocationClient;
-    private LocationCallback locationCallback;
-    private LocationRequest locationRequest;
-    private MutableLiveData<Location> locationMutableLiveData;
+    private static FusedLocationProviderClient fusedLocationClient;
+    private static LocationCallback locationCallback;
+    private static LocationRequest locationRequest;
+    private static MutableLiveData<Location> locationMutableLiveData;
+    private static AppPreference appPreference;
 
 
 
@@ -72,32 +74,21 @@ public class MyLocationService extends Service {
 
 
 
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d("LocationTest", "onStartCommand: ");
-        if (intent != null) {
-            String actionType = intent.getStringExtra("ACTION_TYPE");
-            if (actionType.equalsIgnoreCase("START_LOCATION_TRACKING")) {
-                startLocationTracking();
-            }
-            else if (actionType.equalsIgnoreCase("STOP_LOCATION_TRACKING")) {
-                stopLocationTracking();
-            }
-        }
+        //startLocationTracking();
         return START_STICKY;
     }
 
 
 
 
-    private void startLocationTracking() {
+    public void startLocationTracking() {
         Log.d("LocationTest", "startLocationTracking: ");
-        if (isServiceStarted) return;
-        isServiceStarted = true;
-
-        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-        powerManagerWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag");
-        powerManagerWakeLock.acquire();
+        appPreference = AppPreference.getInstance(getApplicationContext());
+        appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, true);
 
         startFusedLocationProvider();
     }
@@ -105,18 +96,20 @@ public class MyLocationService extends Service {
 
 
 
-    private void stopLocationTracking() {
+    public void stopLocationTracking() {
         if (powerManagerWakeLock.isHeld()) {
             powerManagerWakeLock.release();
         }
         stopForeground(true);
         stopSelf();
-        isServiceStarted = false;
-
 
         if (fusedLocationClient != null && locationCallback != null) {
             fusedLocationClient.removeLocationUpdates(locationCallback);
+            Log.d("LocationTest", "Location Service is stopped 1");
         }
+        appPreference = AppPreference.getInstance(getApplicationContext());
+        appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
+        Log.d("LocationTest", "Location Service is stopped 2");
     }
 
 
@@ -127,6 +120,9 @@ public class MyLocationService extends Service {
         super.onCreate();
         Log.d("LocationTest", "onCreate: ");
         locationMutableLiveData = new MutableLiveData<>();
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        powerManagerWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag");
+        powerManagerWakeLock.acquire();
         startForeground(1, createNotification());
     }
 
@@ -136,6 +132,7 @@ public class MyLocationService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        Log.d("LocationTest", "OnDestroy");
     }
 
 
