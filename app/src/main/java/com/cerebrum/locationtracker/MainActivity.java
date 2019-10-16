@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
+import android.location.Location;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -16,10 +17,9 @@ import android.widget.Toast;
 
 import androidx.appcompat.widget.AppCompatButton;
 import androidx.core.app.ActivityCompat;
+import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProviders;
 
-import com.cerebrum.locationtracker.preference.AppPreference;
-import com.cerebrum.locationtracker.preference.PrefKey;
 import com.cerebrum.locationtracker.viewmodels.LocationViewModel;
 import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
@@ -32,15 +32,14 @@ import com.google.android.gms.maps.model.LatLng;
 public class MainActivity extends BaseActivity implements View.OnClickListener {
 
 
-    private LocationViewModel viewModel;
     private AppCompatButton btnLocationUpdate;
     private GoogleMap googleMapHomeFrag;
-    private AppPreference appPreference;
     private SupportMapFragment mSupportMapFragment;
 
 
     private MyLocationService mService = null;
-    boolean mServiceConnected = false;
+    private boolean mServiceConnected = false;
+    private LocationViewModel viewModel;
 
 
 
@@ -54,14 +53,9 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
         mSupportMapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         btnLocationUpdate.setOnClickListener(this);
 
-
         viewModel = ViewModelProviders.of(this).get(LocationViewModel.class);
-        viewModel.findLastKnownLocation();
-        appPreference = AppPreference.getInstance(getApplicationContext());
+
         initMap();
-
-
-        setLocationUpdateStatus();
     }
 
 
@@ -76,35 +70,26 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
                 googleMapHomeFrag.getUiSettings().setCompassEnabled(true);
                 googleMapHomeFrag.getUiSettings().setMapToolbarEnabled(false);
 
-                if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    return;
-                }
-                else {
-                    googleMapHomeFrag.setMyLocationEnabled(true);
-                    googleMapHomeFrag.getUiSettings().setMyLocationButtonEnabled(true);
-                }
 
-                viewModel.getLastKnownLocation().observe(this, location -> {
-                    CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(), location.getLongitude()), 16);
-                    googleMapHomeFrag.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
-                    googleMapHomeFrag.animateCamera(cameraUpdate);
-                });
+                askLocationPermissions(() ->
+                        checkLocationSettings(() ->
+                                {
+                                    if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                        return;
+                                    }
+                                    else {
+                                        googleMapHomeFrag.setMyLocationEnabled(true);
+                                        googleMapHomeFrag.getUiSettings().setMyLocationButtonEnabled(true);
+                                        viewModel.findLastKnownLocation().observe(this, location ->
+                                                updateLocationUI(location)
+                                        );
+                                    }
+                                }
+                        )
+                );
 
             }
         });
-    }
-
-
-
-
-    private void setLocationUpdateStatus() {
-        if (appPreference.getBoolean(PrefKey.IS_LOCATION_UPDATING)) {
-            btnLocationUpdate.setText("STOP LOCATION UPDATES");
-            startLocationUpdates();
-        }
-        else {
-            btnLocationUpdate.setText("START UPDATING LOCATION");
-        }
     }
 
 
@@ -115,18 +100,18 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
         switch (view.getId()) {
 
             case R.id.btn_location_update:
-                if (appPreference.getBoolean(PrefKey.IS_LOCATION_UPDATING)) {
-                    // Location is updating, so start stop updating location;
-                    btnLocationUpdate.setText("STOP UPDATING LOCATION");
-                    appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
-                    stopLocationUpdates();
+                if (isMyServiceRunning(MyLocationService.class) && mService != null) {
+                    if (mService.isLocationUpdating()) {
+                        stopLocationUpdates();
+                    }
+                    else {
+                        startLocationUpdates();
+                    }
                 }
                 else {
-                    // Location not updating, so start updating location;
-                    startLocationService();
-                    appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, true);
+                    // Start location updated after checking location permission;
+                    checkLocationPermission();
                 }
-
                 break;
         }
     }
@@ -137,40 +122,55 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
     @Override
     protected void onResume() {
         super.onResume();
-       setLocationUpdateStatus();
+        setLocationUpdateStatus();
+        getServiceStatus();
     }
 
 
 
 
+    private void getServiceStatus() {
+        if (isMyServiceRunning(MyLocationService.class)) {
+            Intent intent = new Intent(MainActivity.this, MyLocationService.class);
+            bindService(intent, mServiceConnection, Context.BIND_AUTO_CREATE);
+        }
+    }
+
+
+
+
+    private void checkLocationPermission() {
+        askLocationPermissions(() ->
+                checkLocationSettings(() ->
+                        startLocationService())
+        );
+    }
+
+
+
+
+    // To start service and stating location updates;
     private void startLocationService() {
         Intent serviceIntent = new Intent(this, MyLocationService.class);
         serviceIntent.putExtra("ACTION_TYPE", "START_LOCATION_TRACKING");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
-
         }
         else {
             startService(serviceIntent);
         }
         bindService(serviceIntent, mServiceConnection, Context.BIND_AUTO_CREATE);
+        btnLocationUpdate.setText("Stop Location Updates");
     }
 
 
 
 
     private void startLocationUpdates() {
-        askLocationPermissions(() ->
-                checkLocationSettings(() -> {
-                    if (mService != null && mServiceConnected) {
-                        mService.startLocationTracking();
-                    }
-                    else {
-                        startLocationService();
-                    }
-                    btnLocationUpdate.setText("STOP LOCATION UPDATE");
-                })
-        );
+        if (mService != null) {
+            btnLocationUpdate.setText("Stop Location Updates");
+            mService.startLocationTracking();
+        }
     }
 
 
@@ -178,16 +178,13 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
 
     private void stopLocationUpdates() {
         Toast.makeText(this, "Location updates stopped.", Toast.LENGTH_SHORT).show();
-        if (mService != null && mServiceConnected) {
-            Log.d("LocationTest", "Service is running");
-            mService.stopLocationTracking();
-            unbindService(mServiceConnection);
-            mService.stopSelf();
-            mService.stopForeground(true);
-            mServiceConnected = false;
-            btnLocationUpdate.setText("START LOCATION UPDATE");
-            appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
-        }
+        mServiceConnected = false;
+        btnLocationUpdate.setText("Start Location Updates");
+
+        Intent serviceIntent = new Intent(this, MyLocationService.class);
+        mService.stopForeground(true);
+        unbindService(mServiceConnection);
+        mService.stopService(serviceIntent);
     }
 
 
@@ -199,11 +196,15 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
 
         public void onServiceConnected(ComponentName className, IBinder binder) {
 
-            Log.d("LocationTest", "Connected to service.");
+            Log.d("LocationTest", "onServiceConnected");
             mService = ((MyLocationService.LocalBinder) binder).getService();
             mServiceConnected = true;
-            mService.startLocationTracking();
+            if (!mService.isLocationUpdating()) {
+                mService.startLocationTracking();
+            }
+
             receiveUpdates();
+            setLocationUpdateStatus();
         }
 
 
@@ -213,18 +214,46 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
 
         public void onServiceDisconnected(ComponentName className) {
 
-            Log.d("LocationTest", "Disconnected from service.");
+            mService = null;
+            mServiceConnected = false;
+            Log.d("LocationTest", "onServiceDisconnected");
 
         }
 
+
+
+
+        @Override
+        public void onBindingDied(ComponentName name) {
+            Log.d("LocationTest", "onBindingDied");
+        }
     };
+
+
+
+
+    private void setLocationUpdateStatus() {
+        if (mService != null) {
+            if (mService.isLocationUpdating()) {
+                btnLocationUpdate.setText("Stop Location Updates");
+            }
+            else {
+                btnLocationUpdate.setText("Start Location Updates");
+            }
+        }
+        else {
+            btnLocationUpdate.setText("Start Location Updates");
+        }
+    }
 
 
 
 
     public void receiveUpdates() {
         mService.getLocationUpdates().observe(this, location -> {
-          //  Log.d("LocationTest", "receiveUpdates:  " + location.getLatitude() + " " + location.getLongitude());
+            Toast.makeText(mService, location.getLatitude() + " " + location.getLongitude(), Toast.LENGTH_SHORT).show();
+            Log.d("LocationUpdates", "receiveUpdates:  " + location.getLatitude() + " " + location.getLongitude());
+            updateLocationUI(location);
         });
     }
 
@@ -239,6 +268,26 @@ public class MainActivity extends BaseActivity implements View.OnClickListener {
             }
         }
         return false;
+    }
+
+
+
+
+    private void updateLocationUI(Location location) {
+        CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(), location.getLongitude()), 18);
+        googleMapHomeFrag.moveCamera(cameraUpdate);
+        googleMapHomeFrag.animateCamera(cameraUpdate);
+    }
+
+
+
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (mService != null) {
+            mService.getLocationUpdates().removeObservers(this);
+        }
     }
 
 

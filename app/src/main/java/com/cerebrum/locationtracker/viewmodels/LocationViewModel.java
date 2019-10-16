@@ -10,6 +10,9 @@ import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.MutableLiveData;
 
 import com.cerebrum.locationtracker.MyLocationService;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.OnSuccessListener;
 
 
 
@@ -19,59 +22,34 @@ import com.cerebrum.locationtracker.MyLocationService;
 public class LocationViewModel extends AndroidViewModel {
 
 
-    private MutableLiveData<Location> lastLocationMutableLiveData;
-    private MutableLiveData<Location> locationMutableLiveData;
+    private FusedLocationProviderClient fusedLocationClient;
+    private MutableLiveData<Location> getLastLocation;
 
 
 
 
     public LocationViewModel(@NonNull Application application) {
         super(application);
-        locationMutableLiveData = new MutableLiveData<>();
-        lastLocationMutableLiveData = new MutableLiveData<>();
+        getLastLocation = new MutableLiveData<>();
     }
 
 
 
 
-    public MutableLiveData<Location> getLastKnownLocation() {
-        return lastLocationMutableLiveData;
+    public MutableLiveData<Location> findLastKnownLocation() {
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication());
+        fusedLocationClient.getLastLocation()
+                .addOnSuccessListener(location -> {
+                            // Got last known location. In some rare situations this can be null.
+                            if (location != null) {
+                                getLastLocation.setValue(location);
+                            }
+                        }
+                );
+        return getLastLocation;
     }
 
 
-
-
-    public MutableLiveData<Location> getLocation() {
-        return locationMutableLiveData;
-    }
-
-
-
-
-    public void findLastKnownLocation() {
-
-    }
-
-
-
-
-    public void startLocationUpdates() {
-        Intent serviceIntent = new Intent(getApplication(), MyLocationService.class);
-        serviceIntent.putExtra("ACTION_TYPE", "START_LOCATION_TRACKING");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getApplication().startForegroundService(serviceIntent);
-        }
-        else {
-            getApplication().startService(serviceIntent);
-        }
-    }
-
-
-
-
-    public void stopLocationUpdates() {
-
-    }
 
 
 }

@@ -17,8 +17,6 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.MutableLiveData;
 
-import com.cerebrum.locationtracker.preference.AppPreference;
-import com.cerebrum.locationtracker.preference.PrefKey;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
@@ -34,13 +32,11 @@ public class MyLocationService extends Service {
 
 
     private PowerManager.WakeLock powerManagerWakeLock;
-
-
     private static FusedLocationProviderClient fusedLocationClient;
     private static LocationCallback locationCallback;
     private static LocationRequest locationRequest;
     private static MutableLiveData<Location> locationMutableLiveData;
-    private static AppPreference appPreference;
+    private static boolean isLocationUpdateOn = false;
 
 
 
@@ -49,6 +45,14 @@ public class MyLocationService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return mBinder;
+    }
+
+
+
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        return super.onUnbind(intent);
     }
 
 
@@ -78,7 +82,6 @@ public class MyLocationService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d("LocationTest", "onStartCommand: ");
-        //startLocationTracking();
         return START_STICKY;
     }
 
@@ -87,9 +90,7 @@ public class MyLocationService extends Service {
 
     public void startLocationTracking() {
         Log.d("LocationTest", "startLocationTracking: ");
-        appPreference = AppPreference.getInstance(getApplicationContext());
-        appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, true);
-
+        isLocationUpdateOn = true;
         startFusedLocationProvider();
     }
 
@@ -100,16 +101,15 @@ public class MyLocationService extends Service {
         if (powerManagerWakeLock.isHeld()) {
             powerManagerWakeLock.release();
         }
-        stopForeground(true);
-        stopSelf();
+
 
         if (fusedLocationClient != null && locationCallback != null) {
             fusedLocationClient.removeLocationUpdates(locationCallback);
             Log.d("LocationTest", "Location Service is stopped 1");
         }
-        appPreference = AppPreference.getInstance(getApplicationContext());
-        appPreference.setBoolean(PrefKey.IS_LOCATION_UPDATING, false);
+        isLocationUpdateOn = false;
         Log.d("LocationTest", "Location Service is stopped 2");
+        stopForeground(true);
     }
 
 
@@ -132,6 +132,7 @@ public class MyLocationService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        stopLocationTracking();
         Log.d("LocationTest", "OnDestroy");
     }
 
@@ -235,6 +236,13 @@ public class MyLocationService extends Service {
 
     public MutableLiveData<Location> getLocationUpdates() {
         return locationMutableLiveData;
+    }
+
+
+
+
+    public boolean isLocationUpdating() {
+        return isLocationUpdateOn;
     }
 
 

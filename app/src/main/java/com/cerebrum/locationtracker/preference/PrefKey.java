@@ -8,6 +8,6 @@ public class PrefKey {
     public static final String API_TOKEN = "api_key";
     public static final String IS_LOGIN = "is_login";
 
-    public static final String IS_LOCATION_UPDATING = "is_updating";
+
 
 }
